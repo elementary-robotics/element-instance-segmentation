@@ -1,0 +1,3 @@
+[submodule "maskrcnn"]
+	path = maskrcnn
+	url = git@github.com:BerkeleyAutomation/Mask_RCNN.git

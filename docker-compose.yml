@@ -1,0 +1,53 @@
+version: "2.3"
+
+services:
+
+  nucleus:
+    image: elementaryrobotics/nucleus
+    volumes:
+      - type: volume
+        source: shared
+        target: /shared
+        volume:
+          nocopy: true
+    command: ./launch.sh
+
+  realsense:
+    image: elementaryrobotics/element-realsense
+    volumes:
+      - type: volume
+        source: shared
+        target: /shared
+        volume:
+          nocopy: true
+    depends_on:
+      - "nucleus"
+    privileged: true
+
+  sd-maskrcnn:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - type: volume
+        source: shared
+        target: /shared
+        volume:
+          nocopy: true
+      - ".:/development"
+      - "../Datasets/wisdom:/wisdom"
+      - "/tmp/.X11-unix:/tmp/.X11-unix:rw"
+    depends_on:
+      - "nucleus"
+      - "realsense"
+    runtime: nvidia
+    command: tail -f /dev/null
+    environment:
+     - "DISPLAY"
+     - "QT_X11_NO_MITSHM=1"
+
+volumes:
+  shared:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs

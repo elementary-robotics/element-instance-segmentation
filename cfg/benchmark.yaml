@@ -1,0 +1,43 @@
+output_dir: benchmark_results
+save_conf_name: config.yaml
+
+model:
+  path: /code/models/sd_maskrcnn.h5
+  mode: inference
+  settings:
+    mean_pixel: [128,128,128]
+    backbone: resnet35
+    num_classes: 2
+    gpu_count: 1
+    images_per_gpu: 1
+    post_nms_rois_inference: 2000
+    rpn_nms_threshold: 1.0
+    detection_nms_threshold: 0.35
+
+test:
+  path: /wisdom/wisdom-real/high-res/
+  images: depth_ims
+  masks: modal_segmasks
+  indices: test_indices.npy
+
+mask:                                                                                                                                                              
+  remove_bin_pixels: 1              # Set to True if we want to discard predictions based on if they have bin pixels
+  bin_masks: segmasks_filled        # Directory containing bin masks                                                                                                                                                                                                                         
+  overlap_thresh: 0.5               # Overlap threshold
+
+# Visualization settings
+vis:
+  # Prediction vis settings
+  predictions: 1
+  show_bbox_pred: 0
+  show_scores_pred: 0
+  show_class_pred: 0
+
+  # GT vis settings
+  ground_truth: 1
+  show_bbox_gt: 0
+  show_scores_gt: 0
+  show_class_gt: 0
+
+  # Additional vis settings
+  s_bench: 0
