@@ -104,7 +104,6 @@ if __name__ == "__main__":
     except IndexError or KeyError:
         raise Exception("Could not get data. Is the realsense skill running?")
 
-    # """
     depth_img = cv2.imdecode(np.frombuffer(depth_data, dtype=np.uint16), -1)
     h, w = depth_img.shape
     depth_img = cv2.resize(depth_img, (int(w / 2.5), int(h / 2.5)), interpolation=cv2.INTER_NEAREST)
@@ -114,22 +113,12 @@ if __name__ == "__main__":
     depth_img = inpaint(depth_img)
     depth_img = normalise(depth_img)
     depth_img = np.stack((depth_img,)*3, axis=-1)
-    # """
 
-    """
-    # depth_img = cv2.imread("/wisdom/wisdom-sim/depth_ims/image_000000.png", -1)
-    # depth_img = cv2.imread("/wisdom/wisdom-real/low-res/depth_ims/image_000000.png", -1)
-    depth_img = cv2.imread("/wisdom/wisdom-real/experiment/cropped.png", -1)
-    depth_img = scale_to_square(depth_img)
-    depth_img = cv2.copyMakeBorder(depth_img, 64, 64, 0, 0, cv2.BORDER_CONSTANT, value=0)
-    depth_img = inpaint(depth_img[:,:,0])
-    depth_img = np.stack((depth_img,)*3, axis=-1)
-    print(depth_img.shape)
-    # """
+    color_img = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint16), -1)[:,:,::-1]
+    color_img = scale_to_square(color_img)
+    v_pad, h_pad = (512 - color_img.shape[0]) // 2, (512 - color_img.shape[1]) // 2
+    color_img = cv2.copyMakeBorder(color_img, v_pad, v_pad, h_pad, h_pad, cv2.BORDER_CONSTANT, value=0)
 
-    show_img = depth_img
-    print("show img", show_img.min(), show_img.mean(), show_img.max())
-    cv2.imshow("img", show_img)
-    cv2.waitKey(5)
-    print(depth_img.min(), depth_img.mean(), depth_img.max())
+    # cv2.imshow("img", color_img[:,:,::-1])
+    # cv2.waitKey(5)
     detect(model, depth_img)
