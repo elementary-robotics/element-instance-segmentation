@@ -3,23 +3,16 @@ Please edit "cfg/benchmark.yaml" to specify the necessary parameters for that ta
 """
 
 import os
-import sys
 import argparse
-from tqdm import tqdm
 import numpy as np
-import skimage.io as io
 import matplotlib.pyplot as plt
 
 import cv2
-from atom import Element
 from resize import scale_to_square
 
 from autolab_core import YamlConfig
-
-from sd_maskrcnn import utils
 from sd_maskrcnn.config import MaskConfig
-
-from mrcnn import model as modellib, utils as utilslib, visualize
+from mrcnn import model as modellib, visualize
 
 
 def detect(model, image):
@@ -73,6 +66,7 @@ def normalise(img):
 
 
 if __name__ == "__main__":
+    from atom import Element
     element = Element("sd-maskrcnn")
 
     # parse the provided configuration file, set tf settings, and benchmark
