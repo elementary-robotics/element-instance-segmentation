@@ -1,4 +1,4 @@
-numpy
+numpy==1.15.4
 scikit-image==0.13.1
 # nightly has cuda 10 support. once stable supports cuda 10, switch back to tensorflow-gpu
 tf-nightly-gpu
@@ -8,4 +8,4 @@ tqdm
 autolab_core
 autolab-perception
 pycocotools
-ipython
+ipython==5.5.0
