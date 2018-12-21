@@ -3,7 +3,6 @@ Please edit "cfg/benchmark.yaml" to specify the necessary parameters for that ta
 """
 import argparse
 import cv2
-import matplotlib.pyplot as plt
 import msgpack
 import numpy as np
 import os
@@ -17,7 +16,7 @@ from sd_maskrcnn.config import MaskConfig
 MODES = set(["depth", "both"])
 MODEL_PATHS = {
     "depth": "models/sd_maskrcnn.h5",
-    "both": "models/mask_rcnn_sdmaskrcnn_finetune_ydd_0010.h5",
+    "both": "models/ydd.h5",
 }
 
 
@@ -88,6 +87,22 @@ class SDMaskRCNNEvaluator:
         img = cv2.copyMakeBorder(img, v_pad, v_pad, h_pad, h_pad, cv2.BORDER_REPLICATE)
         return img
 
+    def unscale(self, results, scaling_factor, size):
+        masks = results["masks"].astype(np.uint8)
+        masks = cv2.resize(
+            masks, (int(masks.shape[1] * scaling_factor), int(masks.shape[0] * scaling_factor)),
+            interpolation=cv2.INTER_NEAREST)
+        v_pad, h_pad = (masks.shape[0] - size[0]) // 2, (masks.shape[1] - size[1]) // 2
+        masks = masks[v_pad:-v_pad, h_pad:-h_pad]
+
+        rois = results["rois"] * scaling_factor
+        for roi in rois:
+            roi[0] -= v_pad
+            roi[1] -= h_pad
+            roi[2] -= v_pad
+            roi[3] -= h_pad
+        return masks, rois
+
     def segment(self, _):
         color_data = self.element.entry_read_n("realsense", "color", 1)
         depth_data = self.element.entry_read_n("realsense", "depth", 1)
@@ -98,6 +113,7 @@ class SDMaskRCNNEvaluator:
             raise Exception("Could not get data. Is the realsense skill running?")
 
         depth_img = cv2.imdecode(np.frombuffer(depth_data, dtype=np.uint16), -1)
+        original_size = depth_img.shape[:2]
         depth_img = self.scale_and_square(depth_img, self.scaling_factor, self.input_size)
         depth_img = self.inpaint(depth_img)
         depth_img = self.normalize(depth_img)
@@ -112,18 +128,26 @@ class SDMaskRCNNEvaluator:
         else:
             input_img = np.stack((depth_img, ) * 3, axis=-1)
 
+        # Get results and unscale
         results = self.model.detect([input_img], verbose=0)[0]
+        masks, rois = self.unscale(results, self.scaling_factor, original_size)
 
-        masks = []
-        for i in range(results["masks"].shape[-1]):
-            _, mask = cv2.imencode(".tif", results["masks"][..., i].astype(np.uint8))
-            masks.append(mask.tobytes())
+        # Encoded masks in TIF format and package everything in dictionary
+        encoded_masks = []
+        for mask in masks:
+            _, encoded_mask = cv2.imencode(".tif", mask)
+            encoded_masks.append(encoded_mask.tobytes())
 
         response_data = {
-            "rois": results["rois"].tolist(),
+            "rois": rois.tolist(),
             "scores": results["scores"].tolist(),
-            "masks": masks
+            "masks": encoded_masks
         }
+        import matplotlib.pyplot as plt
+        from mrcnn import visualize
+        color_img = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint16), -1)
+        visualize.display_instances(color_img, rois, masks, results['class_ids'], ['bg', 'obj'])
+        plt.show()
         return Response(msgpack.packb(response_data, use_bin_type=True))
 
 
