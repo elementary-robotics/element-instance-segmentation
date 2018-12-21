@@ -17,20 +17,31 @@ from sd_maskrcnn.config import MaskConfig
 MODES = set(["depth", "both"])
 MODEL_PATHS = {
     "depth": "models/sd_maskrcnn.h5",
-    "both": "models/sd_maskrcnn.h5",
+    "both": "models/mask_rcnn_sdmaskrcnn_finetune_ydd_0010.h5",
 }
 
 
 class SDMaskRCNNEvaluator:
-    def __init__(self, config_path="cfg/benchmark.yaml"):
+    def __init__(self,
+                 mode="depth",
+                 input_size=512,
+                 scaling_factor=2,
+                 config_path="cfg/benchmark.yaml"):
         self.element = Element("sd-maskrcnn")
+        self.input_size = input_size
+        self.scaling_factor = scaling_factor
         self.config_path = config_path
-        self.select_mode(b"depth")
+        self.mode = mode
+        self.set_mode(b"depth")
         self.element.command_add("segment", self.segment, 5000)
-        self.element.command_add("select_mode", self.select_mode, 5000)
+        self.element.command_add("get_mode", self.get_mode, 100)
+        self.element.command_add("set_mode", self.set_mode, 5000)
         self.element.command_loop()
 
-    def select_mode(self, data):
+    def get_mode(self, _):
+        return Response(self.mode)
+
+    def set_mode(self, data):
         mode = data.decode().strip().lower()
         if mode not in MODES:
             return Response(f"Invalid mode {mode}")
@@ -69,6 +80,14 @@ class SDMaskRCNNEvaluator:
         img = np.clip(img + (255 - img.max()), 0, 255)
         return img.astype(np.uint8)
 
+    def scale_and_square(self, img, scaling_factor, size):
+        img = cv2.resize(
+            img, (int(img.shape[1] / scaling_factor), int(img.shape[0] / scaling_factor)),
+            interpolation=cv2.INTER_NEAREST)
+        v_pad, h_pad = (size - img.shape[0]) // 2, (size - img.shape[1]) // 2
+        img = cv2.copyMakeBorder(img, v_pad, v_pad, h_pad, h_pad, cv2.BORDER_REPLICATE)
+        return img
+
     def segment(self, _):
         color_data = self.element.entry_read_n("realsense", "color", 1)
         depth_data = self.element.entry_read_n("realsense", "depth", 1)
@@ -79,26 +98,21 @@ class SDMaskRCNNEvaluator:
             raise Exception("Could not get data. Is the realsense skill running?")
 
         depth_img = cv2.imdecode(np.frombuffer(depth_data, dtype=np.uint16), -1)
-        h, w = depth_img.shape
-        depth_img = cv2.resize(
-            depth_img, (int(w / 2.5), int(h / 2.5)), interpolation=cv2.INTER_NEAREST)
-        # depth_img = scale_to_square(depth_img)
-        v_pad, h_pad = (512 - depth_img.shape[0]) // 2, (512 - depth_img.shape[1]) // 2
-        depth_img = cv2.copyMakeBorder(
-            depth_img, v_pad, v_pad, h_pad, h_pad, cv2.BORDER_CONSTANT, value=0)
+        depth_img = self.scale_and_square(depth_img, self.scaling_factor, self.input_size)
         depth_img = self.inpaint(depth_img)
         depth_img = self.normalize(depth_img)
-        depth_img = np.stack((depth_img, ) * 3, axis=-1)
 
-        """
-        color_img = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint16), -1)[:, :, ::-1]
-        color_img = scale_to_square(color_img)
-        v_pad, h_pad = (512 - color_img.shape[0]) // 2, (512 - color_img.shape[1]) // 2
-        color_img = cv2.copyMakeBorder(
-            color_img, v_pad, v_pad, h_pad, h_pad, cv2.BORDER_CONSTANT, value=0)
-        """
+        if self.mode == "both":
+            gray_img = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint16), 0)
+            gray_img = self.scale_and_square(gray_img, self.scaling_factor, self.input_size)
+            input_img = np.zeros((self.input_size, self.input_size, 3))
+            input_img[..., 0] = gray_img
+            input_img[..., 1] = depth_img
+            input_img[..., 2] = depth_img
+        else:
+            input_img = np.stack((depth_img, ) * 3, axis=-1)
 
-        results = self.model.detect([depth_img], verbose=0)[0]
+        results = self.model.detect([input_img], verbose=0)[0]
 
         masks = []
         for i in range(results["masks"].shape[-1]):
