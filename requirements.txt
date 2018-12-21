@@ -6,6 +6,5 @@ opencv-python
 keras
 tqdm
 autolab_core
-autolab-perception
 pycocotools
-ipython==5.5.0
+ipython

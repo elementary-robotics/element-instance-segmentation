@@ -14,22 +14,39 @@ from mrcnn import model as modellib
 from resize import scale_to_square
 from sd_maskrcnn.config import MaskConfig
 
+MODES = set(["depth", "both"])
+MODEL_PATHS = {
+    "depth": "models/sd_maskrcnn.h5",
+    "both": "models/sd_maskrcnn.h5",
+}
+
 
 class SDMaskRCNNEvaluator:
     def __init__(self, config_path="cfg/benchmark.yaml"):
         self.element = Element("sd-maskrcnn")
+        self.config_path = config_path
+        self.select_mode(b"depth")
+        self.element.command_add("segment", self.segment, 5000)
+        self.element.command_add("select_mode", self.select_mode, 5000)
+        self.element.command_loop()
 
-        config = YamlConfig(config_path)
+    def select_mode(self, data):
+        mode = data.decode().strip().lower()
+        if mode not in MODES:
+            return Response(f"Invalid mode {mode}")
+        self.mode = mode
+        config = YamlConfig(self.config_path)
         inference_config = MaskConfig(config['model']['settings'])
         inference_config.GPU_COUNT = 1
         inference_config.IMAGES_PER_GPU = 1
-        model_dir, _ = os.path.split(config['model']['path'])
+
+        model_path = MODEL_PATHS[self.mode]
+        model_dir, _ = os.path.split(model_path)
         self.model = modellib.MaskRCNN(
             mode=config['model']['mode'], config=inference_config, model_dir=model_dir)
-        self.model.load_weights(config['model']['path'], by_name=True)
-        self.element.log(LogLevel.INFO, f"Loaded weights from {config['model']['path']}")
-        self.element.command_add("segment", self.segment, 5000)
-        self.element.command_loop()
+        self.model.load_weights(model_path, by_name=True)
+        self.element.log(LogLevel.INFO, f"Loaded weights from {model_path}")
+        return Response(f"Mode switched to {self.mode}")
 
     def inpaint(self, img, missing_value=0):
         # cv2 inpainting doesn't handle the border properly
