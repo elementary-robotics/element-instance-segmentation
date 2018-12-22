@@ -1,6 +1,3 @@
-"""
-Please edit "cfg/benchmark.yaml" to specify the necessary parameters for that task.
-"""
 import argparse
 import cv2
 import msgpack
@@ -31,16 +28,24 @@ class SDMaskRCNNEvaluator:
         self.scaling_factor = scaling_factor
         self.config_path = config_path
         self.mode = mode
-        self.set_mode(b"depth")
+        self.set_mode(b"both")
         self.element.command_add("segment", self.segment, 5000)
         self.element.command_add("get_mode", self.get_mode, 100)
         self.element.command_add("set_mode", self.set_mode, 5000)
         self.element.command_loop()
 
     def get_mode(self, _):
+        """
+        Returns the current mode of the algorithm (both or depth).
+        """
         return Response(self.mode)
 
     def set_mode(self, data):
+        """
+        Sets the mode of the algorithm and loads the corresponding weights.
+        'both' means that the algorithm is considering grayscale and depth data.
+        'depth' means that the algorithm only considers depth data.
+        """
         mode = data.decode().strip().lower()
         if mode not in MODES:
             return Response(f"Invalid mode {mode}")
@@ -59,6 +64,9 @@ class SDMaskRCNNEvaluator:
         return Response(f"Mode switched to {self.mode}")
 
     def inpaint(self, img, missing_value=0):
+        """
+        Fills the missing values of the depth data.
+        """
         # cv2 inpainting doesn't handle the border properly
         # https://stackoverflow.com/questions/25974033/inpainting-depth-map-still-a-black-image-border
         img = cv2.copyMakeBorder(img, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
@@ -75,11 +83,19 @@ class SDMaskRCNNEvaluator:
         return img
 
     def normalize(self, img, max_dist=1000):
+        """
+        Scales the range of the data to be in 8-bit.
+        Also shifts the values so that maximum is 255.
+        """
         img = np.clip(img / max_dist, 0, 1) * 255
         img = np.clip(img + (255 - img.max()), 0, 255)
         return img.astype(np.uint8)
 
     def scale_and_square(self, img, scaling_factor, size):
+        """
+        Scales the image by scaling_factor and creates a border around the image to match size.
+        Reducing the size of the image tends to improve the output of the model.
+        """
         img = cv2.resize(
             img, (int(img.shape[1] / scaling_factor), int(img.shape[0] / scaling_factor)),
             interpolation=cv2.INTER_NEAREST)
@@ -88,6 +104,9 @@ class SDMaskRCNNEvaluator:
         return img
 
     def unscale(self, results, scaling_factor, size):
+        """
+        Takes the results of the model and transforms them back into the original dimensions of the input image.
+        """
         masks = results["masks"].astype(np.uint8)
         masks = cv2.resize(
             masks, (int(masks.shape[1] * scaling_factor), int(masks.shape[0] * scaling_factor)),
@@ -97,13 +116,17 @@ class SDMaskRCNNEvaluator:
 
         rois = results["rois"] * scaling_factor
         for roi in rois:
-            roi[0] -= v_pad
-            roi[1] -= h_pad
-            roi[2] -= v_pad
-            roi[3] -= h_pad
+            roi[0] = min(max(0, roi[0] - v_pad), size[0])
+            roi[1] = min(max(0, roi[1] - h_pad), size[1])
+            roi[2] = min(max(0, roi[2] - v_pad), size[0])
+            roi[3] = min(max(0, roi[3] - h_pad), size[1])
         return masks, rois
 
     def segment(self, _):
+        """
+        Gets the latest data from the realsense, preprocesses it and returns the 
+        segmentation masks, bounding boxes, and scores for each detected object.
+        """
         color_data = self.element.entry_read_n("realsense", "color", 1)
         depth_data = self.element.entry_read_n("realsense", "depth", 1)
         try:
@@ -143,11 +166,6 @@ class SDMaskRCNNEvaluator:
             "scores": results["scores"].tolist(),
             "masks": encoded_masks
         }
-        import matplotlib.pyplot as plt
-        from mrcnn import visualize
-        color_img = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint16), -1)
-        visualize.display_instances(color_img, rois, masks, results['class_ids'], ['bg', 'obj'])
-        plt.show()
         return Response(msgpack.packb(response_data, use_bin_type=True))
 
 
