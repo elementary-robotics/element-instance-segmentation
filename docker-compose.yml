@@ -35,16 +35,10 @@ services:
         volume:
           nocopy: true
       - ".:/development"
-      - "../Datasets/wisdom:/wisdom"
-      - "/tmp/.X11-unix:/tmp/.X11-unix:rw"
     depends_on:
       - "nucleus"
       - "realsense"
     runtime: nvidia
-    command: tail -f /dev/null
-    environment:
-     - "DISPLAY"
-     - "QT_X11_NO_MITSHM=1"
 
 volumes:
   shared:
