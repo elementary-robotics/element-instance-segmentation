@@ -1,11 +1,12 @@
 import argparse
 import cv2
-import msgpack
 import numpy as np
 import os
+import tensorflow as tf
 from atom import Element
 from atom.messages import LogLevel, Response
 from autolab_core import YamlConfig
+from keras.backend.tensorflow_backend import set_session
 from mrcnn import model as modellib
 from resize import scale_to_square
 from sd_maskrcnn.config import MaskConfig
@@ -28,6 +29,12 @@ class SDMaskRCNNEvaluator:
         self.scaling_factor = scaling_factor
         self.config_path = config_path
         self.mode = mode
+
+        config = tf.ConfigProto()
+        config.gpu_options.per_process_gpu_memory_fraction = 0.2
+        config.gpu_options.visible_device_list = "0"
+        set_session(tf.Session(config=config))
+
         self.set_mode(b"both")
         self.element.command_add("segment", self.segment, 10000)
         self.element.command_add("get_mode", self.get_mode, 100)
@@ -157,8 +164,8 @@ class SDMaskRCNNEvaluator:
 
         # Encoded masks in TIF format and package everything in dictionary
         encoded_masks = []
-        for mask in masks:
-            _, encoded_mask = cv2.imencode(".tif", mask)
+        for i in range(masks.shape[-1]):
+            _, encoded_mask = cv2.imencode(".tif", masks[..., i])
             encoded_masks.append(encoded_mask.tobytes())
 
         response_data = {
@@ -166,7 +173,7 @@ class SDMaskRCNNEvaluator:
             "scores": results["scores"].tolist(),
             "masks": encoded_masks
         }
-        return Response(msgpack.packb(response_data, use_bin_type=True))
+        return Response(response_data, serialize=True)
 
 
 if __name__ == "__main__":

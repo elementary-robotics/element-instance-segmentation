@@ -24,7 +24,7 @@ services:
       - "nucleus"
     privileged: true
 
-  sd-maskrcnn:
+  instance-segmentation:
     build:
       context: .
       dockerfile: Dockerfile
