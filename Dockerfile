@@ -1,4 +1,4 @@
-FROM elementaryrobotics/atom-cuda
+FROM elementaryrobotics/atom-cuda-10
 
 RUN DEBIAN_FRONTEND=noninteractive apt install -y tzdata python3-tk libopencv-dev
 

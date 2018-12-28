@@ -23,15 +23,15 @@ class SDMaskRCNNEvaluator:
                  input_size=512,
                  scaling_factor=2,
                  config_path="cfg/benchmark.yaml"):
-        self.element = Element("sd-maskrcnn")
+        self.element = Element("instance-segmentation")
         self.input_size = input_size
         self.scaling_factor = scaling_factor
         self.config_path = config_path
         self.mode = mode
         self.set_mode(b"both")
-        self.element.command_add("segment", self.segment, 5000)
+        self.element.command_add("segment", self.segment, 10000)
         self.element.command_add("get_mode", self.get_mode, 100)
-        self.element.command_add("set_mode", self.set_mode, 5000)
+        self.element.command_add("set_mode", self.set_mode, 10000)
         self.element.command_loop()
 
     def get_mode(self, _):
