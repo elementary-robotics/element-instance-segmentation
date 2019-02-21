@@ -38,6 +38,7 @@ services:
     depends_on:
       - "nucleus"
       - "realsense"
+    command: tail -f /dev/null
 
 volumes:
   shared:
