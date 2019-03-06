@@ -1,10 +1,31 @@
+## instance-segmentation
+
 ### Overview
 instance-segmentation is an object agnostic foreground segmentation algorithm. It uses depth and grayscale data to determine if non-background objects are present in the image. If there are, then the algorithm will provide masks and bounding boxes for each object that it detects.
 This element is based on [sd-maskrcnn](https://github.com/BerkeleyAutomation/sd-maskrcnn) visit their project page for more information on training or benchmarking a model. 
 
 ### Commands
-| Element Name            | Command Name           | Data              |
-| ----------------------- | ---------------------- | ----------------- |
-| instance-segmentation   | get_mode               | None              |
-| instance-segmentation   | set_mode               | {"both", "depth"} |
-| instance-segmentation   | segment                | None              |
+| Command  | Data              | Response |
+| -------- | ----------------- | -------- |
+| get_mode | None              | str      |
+| set_mode | {"both", "depth"} | str      |
+| segment  | None              | serialized dict of rois, scores, and TIF-encoded masks |
+
+
+### docker-compose configuration
+```
+instance-segmentation:
+  container_name: instance-segmentation
+  build:
+    context: .
+    dockerfile: Dockerfile
+  volumes:
+    - type: volume
+      source: shared
+      target: /shared
+      volume:
+        nocopy: true
+  depends_on:
+    - "nucleus"
+    - "realsense"
+```
