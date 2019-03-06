@@ -1,6 +1,9 @@
 FROM elementaryrobotics/atom-cuda-10
 
-RUN DEBIAN_FRONTEND=noninteractive apt install -y tzdata python3-tk libopencv-dev
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update
+RUN apt install -y tzdata python3-tk libopencv-dev
 
 ADD . /code
 WORKDIR /code
