@@ -1,0 +1,74 @@
+version: 2
+jobs:
+  build:
+
+    # VM we're going to use to build the docker container
+    machine:
+      enabled: true
+      docker_layer_caching: true
+      image: circleci/classic:201808-01
+
+    # Variables that are easier to set up here to propagate through
+    # the build script
+    environment:
+
+      # Info on where to push the build in Dockerhub
+      DOCKERHUB_ORG: elementaryrobotics
+      DOCKERHUB_REPO: element-instance-segmentation
+
+      # Name of the service in docker-compose.yml
+      DOCKER_COMPOSE_PROJECT_NAME: instance-segmentation
+      DOCKER_COMPOSE_SERVICE_NAME: instance-segmentation
+
+    steps:
+      - checkout
+
+      # Need to log into docker
+      - run:
+          name: Docker login
+          command: echo ${DOCKERHUB_PASSWORD} | docker login -u ${DOCKERHUB_USER} --password-stdin
+
+      #
+      # Build docker image
+      #
+      - run:
+          name: Build docker
+          command: docker-compose -p ${DOCKER_COMPOSE_PROJECT_NAME} build
+
+      #
+      # Launch docker items
+      #
+      - run:
+          name: Launch docker
+          command: docker-compose -p ${DOCKER_COMPOSE_PROJECT_NAME} up -d
+
+      #
+      # Run unit tests
+      #
+      - run:
+          name: Run Unit Tests
+          command: echo "Please write some unit tests!"
+
+      #
+      # Push the image back to DockerHub, either under a "development" tag
+      # or under a master tag
+      #
+      - run:
+          name: Docker Tag and Push
+          command: |
+            if [ "${CIRCLE_BRANCH}" == "master" ]
+            then
+
+              # Tag and push
+              docker tag ${DOCKER_COMPOSE_PROJECT_NAME}_${DOCKER_COMPOSE_SERVICE_NAME}:latest ${DOCKERHUB_ORG}/${DOCKERHUB_REPO}:master-${CIRCLE_BUILD_NUM}
+              docker tag ${DOCKER_COMPOSE_PROJECT_NAME}_${DOCKER_COMPOSE_SERVICE_NAME}:latest ${DOCKERHUB_ORG}/${DOCKERHUB_REPO}:latest
+              docker push ${DOCKERHUB_ORG}/${DOCKERHUB_REPO}:master-${CIRCLE_BUILD_NUM}
+              docker push ${DOCKERHUB_ORG}/${DOCKERHUB_REPO}:latest
+
+            else
+
+              # Tag and push
+              docker tag ${DOCKER_COMPOSE_PROJECT_NAME}_${DOCKER_COMPOSE_SERVICE_NAME}:latest ${DOCKERHUB_ORG}/${DOCKERHUB_REPO}:development-${CIRCLE_BUILD_NUM}
+              docker push ${DOCKERHUB_ORG}/${DOCKERHUB_REPO}:development-${CIRCLE_BUILD_NUM}
+
+            fi
