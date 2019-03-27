@@ -21,7 +21,22 @@ jobs:
       DOCKER_COMPOSE_SERVICE_NAME: instance-segmentation
 
     steps:
+
+      # need to install git-lfs before checkout
+      - run:
+          name: Set up git-lfs package
+          command: curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash
+
+      - run:
+          name: install git-lfs
+          command: sudo apt-get install -y git-lfs && git lfs install
+
       - checkout
+
+      # Need to update submodules before docker-compose build as it fails if run using docker-compose
+      - run:
+          name: Update submodules
+          command: git submodule update --init --recursive
 
       # Need to log into docker
       - run:
