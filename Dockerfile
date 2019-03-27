@@ -7,15 +7,16 @@ RUN apt install -y tzdata python3-tk libopencv-dev
 
 ADD . /code
 WORKDIR /code
+RUN git submodule update --init --recursive
 
-# Fetch Mask R-CNN submodule and install it
-RUN git submodule update --init
-WORKDIR /code/maskrcnn
+WORKDIR /code/sd-maskrcnn/maskrcnn
 RUN python3 setup.py install
-
-WORKDIR /code
+WORKDIR /code/sd-maskrcnn
 RUN pip3 install -r requirements.txt
 RUN python3 setup.py install
 
+WORKDIR /code
+# The submodule installs an older version that breaks atom-cli
+RUN pip3 install prompt-toolkit --upgrade
 RUN chmod +x launch.sh
 CMD ["/bin/bash", "launch.sh"]

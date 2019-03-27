@@ -3,6 +3,7 @@ version: "3.2"
 services:
 
   nucleus:
+    container_name: nucleus
     image: elementaryrobotics/nucleus
     volumes:
       - type: volume
@@ -13,6 +14,7 @@ services:
     command: ./launch.sh
 
   realsense:
+    container_name: realsense
     image: elementaryrobotics/element-realsense
     volumes:
       - type: volume
@@ -25,6 +27,7 @@ services:
     privileged: true
 
   instance-segmentation:
+    container_name: instance-segmentation
     build:
       context: .
       dockerfile: Dockerfile
@@ -38,7 +41,6 @@ services:
     depends_on:
       - "nucleus"
       - "realsense"
-    command: tail -f /dev/null
 
 volumes:
   shared:

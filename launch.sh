@@ -1,3 +1,3 @@
 #!/bin/bash
 
-python3 tools/evaluate.py
+python3 run.py
