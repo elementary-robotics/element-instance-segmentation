@@ -9,6 +9,7 @@ from autolab_core import YamlConfig
 from keras.backend.tensorflow_backend import set_session
 from mrcnn import model as modellib
 from sd_maskrcnn.config import MaskConfig
+import time
 
 MODES = set(["depth", "both"])
 MODEL_PATHS = {
@@ -16,6 +17,7 @@ MODEL_PATHS = {
     "both": "models/ydd.h5",
 }
 
+PUBLSIH_RATE = 30 # Hz
 
 class SDMaskRCNNEvaluator:
     def __init__(self,
@@ -35,6 +37,7 @@ class SDMaskRCNNEvaluator:
         set_session(tf.Session(config=config))
 
         self.set_mode(b"both")
+        self.publish_segments(10000)
         self.element.command_add("segment", self.segment, 10000)
         self.element.command_add("get_mode", self.get_mode, 100)
         self.element.command_add("set_mode", self.set_mode, 10000)
@@ -128,7 +131,34 @@ class SDMaskRCNNEvaluator:
             roi[3] = min(max(0, roi[3] - h_pad), size[1])
         return masks, rois
 
-    def segment(self, _):
+    def publish_segments(self,_):
+
+        self.colors = []
+
+        for i in range(30):
+            self.colors.append((np.random.rand(3)*255).astype(int))
+
+        while True:
+            results,masks,rois,color_img = self.get_masks(_)
+            masked_img = color_img
+            number_of_masks = masks.shape[-1]
+            if(number_of_masks < 25):
+                for i in range(number_of_masks):
+                    if(results["scores"][i] > 0.9):
+                        #mask1 = masks[:,:,i]*255
+                        #mask1_color = cv2.cvtColor(mask1,cv2.COLOR_GRAY2RGB)
+                        #masked_img = cv2.bitwise_or(masked_img,mask1_color)
+                        indices = np.where(masks[:,:,i]==1)
+                        masked_img[indices[0], indices[1], :] = self.colors[i]
+                        masked_img = masked_img
+
+            _, color_serialized = cv2.imencode(".tif", masked_img)
+            self.element.entry_write("color_mask", {"data": color_serialized.tobytes()}, maxlen=30)
+            time.sleep(1/PUBLSIH_RATE)
+
+
+
+    def get_masks(self,_):
         """
         Gets the latest data from the realsense, preprocesses it and returns the 
         segmentation masks, bounding boxes, and scores for each detected object.
@@ -149,6 +179,7 @@ class SDMaskRCNNEvaluator:
 
         if self.mode == "both":
             gray_img = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint16), 0)
+            color_img = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint16), 1)
             gray_img = self.scale_and_square(gray_img, self.scaling_factor, self.input_size)
             input_img = np.zeros((self.input_size, self.input_size, 3))
             input_img[..., 0] = gray_img
@@ -160,7 +191,11 @@ class SDMaskRCNNEvaluator:
         # Get results and unscale
         results = self.model.detect([input_img], verbose=0)[0]
         masks, rois = self.unscale(results, self.scaling_factor, original_size)
+        return results, masks, rois, color_img
 
+    def segment(self, _):
+
+        results,masks,rois,color_img = self.get_masks(_)
         # Encoded masks in TIF format and package everything in dictionary
         encoded_masks = []
         for i in range(masks.shape[-1]):
