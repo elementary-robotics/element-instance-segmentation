@@ -17,7 +17,8 @@ MODEL_PATHS = {
     "both": "models/ydd.h5",
 }
 
-PUBLSIH_RATE = 30 # Hz
+PUBLSIH_RATE = 10 # Hz
+MAX_MASKS = 30
 
 class SDMaskRCNNEvaluator:
     def __init__(self,
@@ -135,22 +136,18 @@ class SDMaskRCNNEvaluator:
 
         self.colors = []
 
-        for i in range(30):
+        for i in range(MAX_MASKS):
             self.colors.append((np.random.rand(3)*255).astype(int))
 
         while True:
             results,masks,rois,color_img = self.get_masks(_)
             masked_img = color_img
             number_of_masks = masks.shape[-1]
-            if(number_of_masks < 25):
+            if(number_of_masks < MAX_MASKS):
                 for i in range(number_of_masks):
                     if(results["scores"][i] > 0.9):
-                        #mask1 = masks[:,:,i]*255
-                        #mask1_color = cv2.cvtColor(mask1,cv2.COLOR_GRAY2RGB)
-                        #masked_img = cv2.bitwise_or(masked_img,mask1_color)
                         indices = np.where(masks[:,:,i]==1)
                         masked_img[indices[0], indices[1], :] = self.colors[i]
-                        masked_img = masked_img
 
             _, color_serialized = cv2.imencode(".tif", masked_img)
             self.element.entry_write("color_mask", {"data": color_serialized.tobytes()}, maxlen=30)
