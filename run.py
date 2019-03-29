@@ -20,7 +20,7 @@ MODEL_PATHS = {
 
 PUBLISH_RATE = 10  # Hz
 NUM_OF_COLORS = 640
-SEGMENT_SCORE = 0.9
+SEGMENT_SCORE = 0.98
 
 
 class SDMaskRCNNEvaluator:
@@ -151,19 +151,33 @@ class SDMaskRCNNEvaluator:
 
         while True:
             start_time = time.time()
-
             results, masks, rois, color_img = self.get_masks()
             masked_img = color_img
+            masked_img = np.zeros(color_img.shape)
 
             if masks.ndim == 3 and results["scores"].size != 0:
                 number_of_masks = masks.shape[-1]
-                # Add masks in reverse order of the scores
+                # Calculate the areas of masks
+                mask_areas = []
                 for i in range(number_of_masks):
-                    print(i)
+                    width  = np.abs(rois[i][0] - rois[i][2])
+                    height = np.abs(rois[i][1] - rois[i][3])
+                    mask_area = width*height
+                    mask_areas.append(mask_area)
+
+                np_mask_areas = np.array(mask_areas)
+                mask_indices = np.argsort(np_mask_areas)
+                # Add masks in the order of there areas.
+                for i in mask_indices:
                     if (results["scores"][i] > SEGMENT_SCORE):
                         indices = np.where(masks[:, :, i] == 1)
+                        #rgb_mask = cv2.cvtColor(masks[:,:,i]*255,cv2.COLOR_GRAY2RGB)
+                        #rgb_mask[indices[0], indices[1], :] = self.colors[i]
+                        #masked_img = cv2.addWeighted(masked_img,0.5,rgb_mask,0.5,0)
+                        #masked_img = cv2.bitwise_or(masked_img,rgb_mask)
                         masked_img[indices[0], indices[1], :] = self.colors[i]
 
+                masked_img = cv2.addWeighted(color_img,0.6,masked_img.astype('uint8'),0.4,0)
                 _, color_serialized = cv2.imencode(".tif", masked_img)
                 self.element.entry_write(
                     "color_mask", {"data": color_serialized.tobytes()},
