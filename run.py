@@ -152,17 +152,17 @@ class SDMaskRCNNEvaluator:
         while True:
             start_time = time.time()
             results, masks, rois, color_img = self.get_masks()
-            masked_img = color_img
-            masked_img = np.zeros(color_img.shape)
+            masked_img = np.zeros(color_img.shape).astype("uint8")
+            contour_img = np.zeros(color_img.shape).astype("uint8")
 
             if masks.ndim == 3 and results["scores"].size != 0:
                 number_of_masks = masks.shape[-1]
                 # Calculate the areas of masks
                 mask_areas = []
                 for i in range(number_of_masks):
-                    width  = np.abs(rois[i][0] - rois[i][2])
+                    width = np.abs(rois[i][0] - rois[i][2])
                     height = np.abs(rois[i][1] - rois[i][3])
-                    mask_area = width*height
+                    mask_area = width * height
                     mask_areas.append(mask_area)
 
                 np_mask_areas = np.array(mask_areas)
@@ -177,7 +177,24 @@ class SDMaskRCNNEvaluator:
                         #masked_img = cv2.bitwise_or(masked_img,rgb_mask)
                         masked_img[indices[0], indices[1], :] = self.colors[i]
 
-                masked_img = cv2.addWeighted(color_img,0.6,masked_img.astype('uint8'),0.4,0)
+                # Smoothen masks
+                masked_img = cv2.medianBlur(masked_img, 15)
+                # find countours and draw boundaries.
+                gray_image = cv2.cvtColor(masked_img, cv2.COLOR_BGR2GRAY)
+                ret, thresh = cv2.threshold(gray_image, 50, 255,
+                                            cv2.THRESH_BINARY)
+                contours, hierarchy = cv2.findContours(
+                    thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+                # Draw contours:
+                for contour in contours:
+                    area = cv2.contourArea(contour)
+                    cv2.drawContours(contour_img, contour, -1, (255, 255, 255),
+                                     5)
+
+                masked_img = cv2.addWeighted(color_img, 0.6, masked_img, 0.4,
+                                             0)
+                masked_img = cv2.bitwise_or(masked_img, contour_img)
+
                 _, color_serialized = cv2.imencode(".tif", masked_img)
                 self.element.entry_write(
                     "color_mask", {"data": color_serialized.tobytes()},
