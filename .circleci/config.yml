@@ -12,10 +12,6 @@ jobs:
     # the build script
     environment:
 
-      # Info on where to push the build in Dockerhub
-      DOCKERHUB_ORG: elementaryrobotics
-      DOCKERHUB_REPO: element-instance-segmentation
-
       # Name of the service in docker-compose.yml
       DOCKER_COMPOSE_PROJECT_NAME: instance-segmentation
       DOCKER_COMPOSE_SERVICE_NAME: instance-segmentation
