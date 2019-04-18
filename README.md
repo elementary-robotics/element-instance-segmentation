@@ -22,6 +22,15 @@ git submodule update --init --recursive
 | get_mode | None              | str      |
 | set_mode | {"both", "depth"} | str      |
 | segment  | None              | serialized dict of rois, scores, and TIF-encoded masks |
+| stream   | {"true", "false"} | str      |
+
+### Streams
+To enable the streaming of `color_mask`, send `"true"` to the `stream` command.
+
+| Stream                 | Format            |
+| ---------------------- | ----------------- |
+| color_mask             | TIF encoded image |
+
 
 
 ### docker-compose configuration
