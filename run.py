@@ -3,14 +3,14 @@ import cv2
 import numpy as np
 import os
 import tensorflow as tf
+import time
 from atom import Element
 from atom.messages import LogLevel, Response
 from autolab_core import YamlConfig
 from keras.backend.tensorflow_backend import set_session
 from mrcnn import model as modellib
 from sd_maskrcnn.config import MaskConfig
-import time
-import pdb
+from threading import Thread
 
 MODES = set(["depth", "both"])
 MODEL_PATHS = {
@@ -25,7 +25,7 @@ SEGMENT_SCORE = 0.98
 
 class SDMaskRCNNEvaluator:
     def __init__(self,
-                 mode="depth",
+                 mode="both",
                  input_size=512,
                  scaling_factor=2,
                  config_path="sd-maskrcnn/cfg/benchmark.yaml"):
@@ -34,6 +34,8 @@ class SDMaskRCNNEvaluator:
         self.scaling_factor = scaling_factor
         self.config_path = config_path
         self.mode = mode
+        # Streaming of masks is disabled by default to prevent consumption of resources
+        self.stream_enabled = False
 
         config = tf.ConfigProto()
         config.gpu_options.per_process_gpu_memory_fraction = 0.5
@@ -41,10 +43,12 @@ class SDMaskRCNNEvaluator:
         set_session(tf.Session(config=config))
 
         self.set_mode(b"both")
-        self.publish_segments()
+        t = Thread(target=self.publish_segments, daemon=True)
+        t.start()
         self.element.command_add("segment", self.segment, 10000)
         self.element.command_add("get_mode", self.get_mode, 100)
         self.element.command_add("set_mode", self.set_mode, 10000)
+        self.element.command_add("stream", self.set_stream, 100)
         self.element.command_loop()
 
     def get_mode(self, _):
@@ -71,13 +75,24 @@ class SDMaskRCNNEvaluator:
         model_path = MODEL_PATHS[self.mode]
         model_dir, _ = os.path.split(model_path)
         self.model = modellib.MaskRCNN(
-            mode=config['model']['mode'],
-            config=inference_config,
-            model_dir=model_dir)
+            mode=config['model']['mode'], config=inference_config, model_dir=model_dir)
         self.model.load_weights(model_path, by_name=True)
         self.element.log(LogLevel.INFO, f"Loaded weights from {model_path}")
         return Response(f"Mode switched to {self.mode}")
 
+    def set_stream(self, data):
+        """
+        Sets streaming of segmented masks to true or false.
+        """
+        data = data.decode().strip().lower()
+        if data == "true":
+            self.stream_enabled = True
+        elif data == "false":
+            self.stream_enabled = False
+        else:
+            return Response(f"Expected bool, got {type(data)}.")
+        return Response(f"Streaming set to {self.stream_enabled}")
+        
     def inpaint(self, img, missing_value=0):
         """
         Fills the missing values of the depth data.
@@ -89,8 +104,7 @@ class SDMaskRCNNEvaluator:
 
         # Scale to keep as float, but has to be in bounds -1:1 to keep opencv happy.
         scale = np.abs(img).max()
-        img = img.astype(
-            np.float32) / scale  # Has to be float32, 64 not supported.
+        img = img.astype(np.float32) / scale  # Has to be float32, 64 not supported.
         img = cv2.inpaint(img, mask, 1, cv2.INPAINT_NS)
 
         # Back to original size and value range.
@@ -113,12 +127,10 @@ class SDMaskRCNNEvaluator:
         Reducing the size of the image tends to improve the output of the model.
         """
         img = cv2.resize(
-            img, (int(img.shape[1] / scaling_factor),
-                  int(img.shape[0] / scaling_factor)),
+            img, (int(img.shape[1] / scaling_factor), int(img.shape[0] / scaling_factor)),
             interpolation=cv2.INTER_NEAREST)
         v_pad, h_pad = (size - img.shape[0]) // 2, (size - img.shape[1]) // 2
-        img = cv2.copyMakeBorder(img, v_pad, v_pad, h_pad, h_pad,
-                                 cv2.BORDER_REPLICATE)
+        img = cv2.copyMakeBorder(img, v_pad, v_pad, h_pad, h_pad, cv2.BORDER_REPLICATE)
         return img
 
     def unscale(self, results, scaling_factor, size):
@@ -127,11 +139,9 @@ class SDMaskRCNNEvaluator:
         """
         masks = results["masks"].astype(np.uint8)
         masks = cv2.resize(
-            masks, (int(masks.shape[1] * scaling_factor),
-                    int(masks.shape[0] * scaling_factor)),
+            masks, (int(masks.shape[1] * scaling_factor), int(masks.shape[0] * scaling_factor)),
             interpolation=cv2.INTER_NEAREST)
-        v_pad, h_pad = (masks.shape[0] - size[0]) // 2, (
-            masks.shape[1] - size[1]) // 2
+        v_pad, h_pad = (masks.shape[0] - size[0]) // 2, (masks.shape[1] - size[1]) // 2
         masks = masks[v_pad:-v_pad, h_pad:-h_pad]
 
         rois = results["rois"] * scaling_factor
@@ -143,13 +153,19 @@ class SDMaskRCNNEvaluator:
         return masks, rois
 
     def publish_segments(self):
-
+        """
+        Publishes visualization of segmentation masks continuously.
+        """
         self.colors = []
 
         for i in range(NUM_OF_COLORS):
             self.colors.append((np.random.rand(3) * 255).astype(int))
 
         while True:
+            if not self.stream_enabled:
+                time.sleep(1 / PUBLISH_RATE)
+                continue
+
             start_time = time.time()
             results, masks, rois, color_img = self.get_masks()
             masked_img = np.zeros(color_img.shape).astype("uint8")
@@ -171,34 +187,26 @@ class SDMaskRCNNEvaluator:
                 for i in mask_indices:
                     if (results["scores"][i] > SEGMENT_SCORE):
                         indices = np.where(masks[:, :, i] == 1)
-                        #rgb_mask = cv2.cvtColor(masks[:,:,i]*255,cv2.COLOR_GRAY2RGB)
-                        #rgb_mask[indices[0], indices[1], :] = self.colors[i]
-                        #masked_img = cv2.addWeighted(masked_img,0.5,rgb_mask,0.5,0)
-                        #masked_img = cv2.bitwise_or(masked_img,rgb_mask)
                         masked_img[indices[0], indices[1], :] = self.colors[i]
 
                 # Smoothen masks
                 masked_img = cv2.medianBlur(masked_img, 15)
                 # find countours and draw boundaries.
                 gray_image = cv2.cvtColor(masked_img, cv2.COLOR_BGR2GRAY)
-                ret, thresh = cv2.threshold(gray_image, 50, 255,
-                                            cv2.THRESH_BINARY)
-                contours, hierarchy = cv2.findContours(
-                    thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+                ret, thresh = cv2.threshold(gray_image, 50, 255, cv2.THRESH_BINARY)
+                contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL,
+                                                       cv2.CHAIN_APPROX_NONE)
                 # Draw contours:
                 for contour in contours:
                     area = cv2.contourArea(contour)
-                    cv2.drawContours(contour_img, contour, -1, (255, 255, 255),
-                                     5)
+                    cv2.drawContours(contour_img, contour, -1, (255, 255, 255), 5)
 
-                masked_img = cv2.addWeighted(color_img, 0.6, masked_img, 0.4,
-                                             0)
+                masked_img = cv2.addWeighted(color_img, 0.6, masked_img, 0.4, 0)
                 masked_img = cv2.bitwise_or(masked_img, contour_img)
 
                 _, color_serialized = cv2.imencode(".tif", masked_img)
                 self.element.entry_write(
-                    "color_mask", {"data": color_serialized.tobytes()},
-                    maxlen=30)
+                    "color_mask", {"data": color_serialized.tobytes()}, maxlen=30)
 
             time.sleep(max(0, (1 / PUBLISH_RATE) - (time.time() - start_time)))
 
@@ -213,24 +221,18 @@ class SDMaskRCNNEvaluator:
             color_data = color_data[0]["data"]
             depth_data = depth_data[0]["data"]
         except IndexError or KeyError:
-            raise Exception(
-                "Could not get data. Is the realsense skill running?")
+            raise Exception("Could not get data. Is the realsense skill running?")
 
-        depth_img = cv2.imdecode(
-            np.frombuffer(depth_data, dtype=np.uint16), -1)
+        depth_img = cv2.imdecode(np.frombuffer(depth_data, dtype=np.uint16), -1)
         original_size = depth_img.shape[:2]
-        depth_img = self.scale_and_square(depth_img, self.scaling_factor,
-                                          self.input_size)
+        depth_img = self.scale_and_square(depth_img, self.scaling_factor, self.input_size)
         depth_img = self.inpaint(depth_img)
         depth_img = self.normalize(depth_img)
 
         if self.mode == "both":
-            gray_img = cv2.imdecode(
-                np.frombuffer(color_data, dtype=np.uint16), 0)
-            color_img = cv2.imdecode(
-                np.frombuffer(color_data, dtype=np.uint16), 1)
-            gray_img = self.scale_and_square(gray_img, self.scaling_factor,
-                                             self.input_size)
+            gray_img = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint16), 0)
+            color_img = cv2.imdecode(np.frombuffer(color_data, dtype=np.uint16), 1)
+            gray_img = self.scale_and_square(gray_img, self.scaling_factor, self.input_size)
             input_img = np.zeros((self.input_size, self.input_size, 3))
             input_img[..., 0] = gray_img
             input_img[..., 1] = depth_img
@@ -244,7 +246,9 @@ class SDMaskRCNNEvaluator:
         return results, masks, rois, color_img
 
     def segment(self, _):
-
+        """
+        Command for getting the latest segmentation masks and returning the results.
+        """
         results, masks, rois, color_img = self.get_masks()
         # Encoded masks in TIF format and package everything in dictionary
         encoded_masks = []
