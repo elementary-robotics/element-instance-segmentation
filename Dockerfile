@@ -8,6 +8,7 @@ RUN apt install -y tzdata python3-tk libopencv-dev
 ADD . /code
 WORKDIR /code
 
+RUN pip3 install -r requirements.txt
 WORKDIR /code/sd-maskrcnn/maskrcnn
 RUN python3 setup.py install
 WORKDIR /code/sd-maskrcnn
