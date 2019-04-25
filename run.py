@@ -43,13 +43,13 @@ class SDMaskRCNNEvaluator:
         set_session(tf.Session(config=config))
 
         self.set_mode(b"both")
+        t = Thread(target=self.publish_segments, daemon=True)
+        t.start()
         self.element.command_add("segment", self.segment, 10000)
         self.element.command_add("get_mode", self.get_mode, 100)
         self.element.command_add("set_mode", self.set_mode, 10000)
         self.element.command_add("stream", self.set_stream, 100)
-        t = Thread(target=self.element.command_loop, daemon=True)
-        t.start()
-        self.publish_segments()
+        self.element.command_loop()
 
     def get_mode(self, _):
         """
@@ -171,7 +171,7 @@ class SDMaskRCNNEvaluator:
             masked_img = np.zeros(color_img.shape).astype("uint8")
             contour_img = np.zeros(color_img.shape).astype("uint8")
 
-            if masks is not None and masks.ndim == 3 and results["scores"].size != 0:
+            if masks.ndim == 3 and results["scores"].size != 0:
                 number_of_masks = masks.shape[-1]
                 # Calculate the areas of masks
                 mask_areas = []
@@ -243,11 +243,6 @@ class SDMaskRCNNEvaluator:
         # Get results and unscale
         results = self.model.detect([input_img], verbose=0)[0]
         masks, rois = self.unscale(results, self.scaling_factor, original_size)
-
-        if masks.ndim != 3 or results["scores"].size == 0:
-            masks = None
-            results = None
-
         return results, masks, rois, color_img
 
     def segment(self, _):
@@ -257,24 +252,15 @@ class SDMaskRCNNEvaluator:
         results, masks, rois, color_img = self.get_masks()
         # Encoded masks in TIF format and package everything in dictionary
         encoded_masks = []
+        for i in range(masks.shape[-1]):
+            _, encoded_mask = cv2.imencode(".tif", masks[..., i])
+            encoded_masks.append(encoded_mask.tobytes())
 
-        if masks is not None and results["scores"] is not None:
-            for i in range(masks.shape[-1]):
-                _, encoded_mask = cv2.imencode(".tif", masks[..., i])
-                encoded_masks.append(encoded_mask.tobytes())
-            response_data = {
-                "rois": rois.tolist(),
-                "scores": results["scores"].tolist(),
-                "masks": encoded_masks
-            }
-
-        else:
-            response_data = {
-                "rois": [],
-                "scores": [],
-                "masks": []
-            }
-
+        response_data = {
+            "rois": rois.tolist(),
+            "scores": results["scores"].tolist(),
+            "masks": encoded_masks
+        }
         return Response(response_data, serialize=True)
 
 
