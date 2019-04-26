@@ -43,6 +43,8 @@ class SDMaskRCNNEvaluator:
         set_session(tf.Session(config=config))
 
         self.set_mode(b"both")
+        # Initiate tensorflow graph before running threads
+        self.get_masks()
         self.element.command_add("segment", self.segment, 10000)
         self.element.command_add("get_mode", self.get_mode, 100)
         self.element.command_add("set_mode", self.set_mode, 10000)
@@ -167,11 +169,11 @@ class SDMaskRCNNEvaluator:
                 continue
 
             start_time = time.time()
-            results, masks, rois, color_img = self.get_masks()
+            scores, masks, rois, color_img = self.get_masks()
             masked_img = np.zeros(color_img.shape).astype("uint8")
             contour_img = np.zeros(color_img.shape).astype("uint8")
 
-            if masks is not None and masks.ndim == 3 and results["scores"].size != 0:
+            if masks is not None and masks.ndim == 3 and scores.size != 0:
                 number_of_masks = masks.shape[-1]
                 # Calculate the areas of masks
                 mask_areas = []
@@ -185,7 +187,7 @@ class SDMaskRCNNEvaluator:
                 mask_indices = np.argsort(np_mask_areas)
                 # Add masks in the order of there areas.
                 for i in mask_indices:
-                    if (results["scores"][i] > SEGMENT_SCORE):
+                    if (scores[i] > SEGMENT_SCORE):
                         indices = np.where(masks[:, :, i] == 1)
                         masked_img[indices[0], indices[1], :] = self.colors[i]
 
@@ -221,7 +223,7 @@ class SDMaskRCNNEvaluator:
             color_data = color_data[0]["data"]
             depth_data = depth_data[0]["data"]
         except IndexError or KeyError:
-            raise Exception("Could not get data. Is the realsense skill running?")
+            raise Exception("Could not get data. Is the realsense element running?")
 
         depth_img = cv2.imdecode(np.frombuffer(depth_data, dtype=np.uint16), -1)
         original_size = depth_img.shape[:2]
@@ -246,25 +248,25 @@ class SDMaskRCNNEvaluator:
 
         if masks.ndim != 3 or results["scores"].size == 0:
             masks = None
-            results = None
+            results["scores"] = None
 
-        return results, masks, rois, color_img
+        return results["scores"], masks, rois, color_img
 
     def segment(self, _):
         """
         Command for getting the latest segmentation masks and returning the results.
         """
-        results, masks, rois, color_img = self.get_masks()
+        scores, masks, rois, color_img = self.get_masks()
         # Encoded masks in TIF format and package everything in dictionary
         encoded_masks = []
 
-        if masks is not None and results["scores"] is not None:
+        if masks is not None and scores is not None:
             for i in range(masks.shape[-1]):
                 _, encoded_mask = cv2.imencode(".tif", masks[..., i])
                 encoded_masks.append(encoded_mask.tobytes())
             response_data = {
                 "rois": rois.tolist(),
-                "scores": results["scores"].tolist(),
+                "scores": scores.tolist(),
                 "masks": encoded_masks
             }
 
