@@ -173,7 +173,7 @@ class SDMaskRCNNEvaluator:
             masked_img = np.zeros(color_img.shape).astype("uint8")
             contour_img = np.zeros(color_img.shape).astype("uint8")
 
-            if masks is not None and masks.ndim == 3 and scores.size != 0:
+            if masks is not None and scores.size != 0:
                 number_of_masks = masks.shape[-1]
                 # Calculate the areas of masks
                 mask_areas = []
@@ -245,10 +245,12 @@ class SDMaskRCNNEvaluator:
         # Get results and unscale
         results = self.model.detect([input_img], verbose=0)[0]
         masks, rois = self.unscale(results, self.scaling_factor, original_size)
-
-        if masks.ndim != 3 or results["scores"].size == 0:
+        
+        if masks.ndim < 2 or results["scores"].size == 0:
             masks = None
             results["scores"] = None
+        elif masks.ndim == 2:
+            masks = np.expand_dims(masks, axis=-1)
 
         return results["scores"], masks, rois, color_img
 
