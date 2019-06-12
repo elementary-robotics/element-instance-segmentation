@@ -11,6 +11,8 @@ from keras.backend.tensorflow_backend import set_session
 from mrcnn import model as modellib
 from sd_maskrcnn.config import MaskConfig
 from threading import Thread
+import realsense_contracts as rc
+from contracts import INSTANCE_SEGMENTATION_ELEMENT_NAME, ColorStreamContract
 
 MODES = set(["depth", "both"])
 MODEL_PATHS = {
@@ -30,6 +32,7 @@ class SDMaskRCNNEvaluator:
                  scaling_factor=2,
                  config_path="sd-maskrcnn/cfg/benchmark.yaml"):
         self.element = Element("instance-segmentation")
+        self.element.wait_for_elements_healthy([rc.REALSENSE_ELEMENT_NAME])
         self.input_size = input_size
         self.scaling_factor = scaling_factor
         self.config_path = config_path
@@ -51,7 +54,7 @@ class SDMaskRCNNEvaluator:
         self.element.command_add("stream", self.set_stream, 100)
         t = Thread(target=self.element.command_loop, daemon=True)
         t.start()
-        self.publish_segments()
+        #self.publish_segments()
 
     def get_mode(self, _):
         """
@@ -94,7 +97,7 @@ class SDMaskRCNNEvaluator:
         else:
             return Response(f"Expected bool, got {type(data)}.")
         return Response(f"Streaming set to {self.stream_enabled}")
-        
+
     def inpaint(self, img, missing_value=0):
         """
         Fills the missing values of the depth data.
@@ -214,14 +217,24 @@ class SDMaskRCNNEvaluator:
 
     def get_masks(self):
         """
-        Gets the latest data from the realsense, preprocesses it and returns the 
+        Gets the latest data from the realsense, preprocesses it and returns the
         segmentation masks, bounding boxes, and scores for each detected object.
         """
-        color_data = self.element.entry_read_n("realsense", "color", 1)
-        depth_data = self.element.entry_read_n("realsense", "depth", 1)
+        color_data = self.element.entry_read_n(
+            rc.REALSENSE_ELEMENT_NAME,
+            rc.ColorStreamContract.STREAM_NAME,
+            n=1,
+            deserialize=rc.ColorStreamContract.SERIALIZE
+        )
+        depth_data = self.element.entry_read_n(
+            rc.REALSENSE_ELEMENT_NAME,
+            rc.DepthStreamContract.STREAM_NAME,
+            n=1,
+            deserialize=rc.DepthStreamContract.SERIALIZE
+        )
         try:
-            color_data = color_data[0]["data"]
-            depth_data = depth_data[0]["data"]
+            color_data = rc.ColorStreamContract(color_data[0]).data
+            depth_data = rc.DepthStreamContract(depth_data[0]).data
         except IndexError or KeyError:
             raise Exception("Could not get data. Is the realsense element running?")
 
@@ -245,7 +258,7 @@ class SDMaskRCNNEvaluator:
         # Get results and unscale
         results = self.model.detect([input_img], verbose=0)[0]
         masks, rois = self.unscale(results, self.scaling_factor, original_size)
-        
+
         if masks.ndim < 2 or results["scores"].size == 0:
             masks = None
             results["scores"] = None
@@ -284,3 +297,6 @@ class SDMaskRCNNEvaluator:
 
 if __name__ == "__main__":
     evaluator = SDMaskRCNNEvaluator()
+    test = evaluator.segment(None)
+    print(test.data)
+    time.sleep(100000)

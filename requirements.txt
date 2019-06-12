@@ -1,1 +1,2 @@
 matplotlib==2.2.0
+setuptools==41.0.0
