@@ -39,6 +39,11 @@ jobs:
           name: Docker login
           command: echo ${DOCKERHUB_PASSWORD} | docker login -u ${DOCKERHUB_USER} --password-stdin
 
+      # Make sure we have latest version of our dependency containers
+      - run:
+          name: Docker pull
+          command: docker pull elementaryrobotics/element-realsense
+
       #
       # Build docker image
       #
