@@ -39,7 +39,7 @@ class GetModeCommand:
 
     class Response(RawContract):
         SERIALIZE = False
-        data = StringProperty(required=True)
+        data = BinaryProperty(required=True)
 
 class SetModeCommand:
     COMMAND_NAME = "set_mode"
