@@ -15,7 +15,7 @@ WORKDIR /code/sd-maskrcnn
 RUN pip3 install -r requirements.txt
 RUN python3 setup.py install
 
-COPY --from=element-realsense_realsense:latest \
+COPY --from=elementaryrobotics/element-realsense \
     /code/realsense/contracts.py /code/realsense_contracts.py
 
 WORKDIR /code

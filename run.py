@@ -12,7 +12,8 @@ from mrcnn import model as modellib
 from sd_maskrcnn.config import MaskConfig
 from threading import Thread
 import realsense_contracts as rc
-from contracts import INSTANCE_SEGMENTATION_ELEMENT_NAME, ColorStreamContract
+from contracts import INSTANCE_SEGMENTATION_ELEMENT_NAME, ColorMaskStreamContract, \
+SegmentCommand, SetStreamCommand, GetModeCommand, SetModeCommand
 
 MODES = set(["depth", "both"])
 MODEL_PATHS = {
@@ -31,8 +32,7 @@ class SDMaskRCNNEvaluator:
                  input_size=512,
                  scaling_factor=2,
                  config_path="sd-maskrcnn/cfg/benchmark.yaml"):
-        self.element = Element("instance-segmentation")
-        self.element.wait_for_elements_healthy([rc.REALSENSE_ELEMENT_NAME])
+        self.element = Element(INSTANCE_SEGMENTATION_ELEMENT_NAME)
         self.input_size = input_size
         self.scaling_factor = scaling_factor
         self.config_path = config_path
@@ -48,19 +48,70 @@ class SDMaskRCNNEvaluator:
         self.set_mode(b"both")
         # Initiate tensorflow graph before running threads
         self.get_masks()
-        self.element.command_add("segment", self.segment, 10000)
-        self.element.command_add("get_mode", self.get_mode, 100)
-        self.element.command_add("set_mode", self.set_mode, 10000)
-        self.element.command_add("stream", self.set_stream, 100)
+
+        # Init command handlers
+        self.element.command_add(
+            SegmentCommand.COMMAND_NAME,
+            self.segment,
+            timeout=10000,
+            deserialize=SegmentCommand.Request.SERIALIZE
+        )
+        self.element.command_add(
+            GetModeCommand.COMMAND_NAME,
+            self.get_mode,
+            timeout=100,
+            deserialize=GetModeCommand.Request.SERIALIZE
+        )
+        self.element.command_add(
+            SetModeCommand.COMMAND_NAME,
+            self.set_mode,
+            timeout=10000,
+            deserialize=SetModeCommand.Request.SERIALIZE
+        )
+        self.element.command_add(
+            SetStreamCommand.COMMAND_NAME,
+            self.set_stream,
+            timeout=100,
+            deserialize=SetStreamCommand.Request.SERIALIZE
+        )
         t = Thread(target=self.element.command_loop, daemon=True)
         t.start()
-        #self.publish_segments()
+
+        self.publish_segments()
+
+    def segment(self, _):
+        """
+        Command for getting the latest segmentation masks and returning the results.
+        """
+        scores, masks, rois, color_img = self.get_masks()
+        # Encoded masks in TIF format and package everything in dictionary
+        encoded_masks = []
+
+        if masks is not None and scores is not None:
+            for i in range(masks.shape[-1]):
+                _, encoded_mask = cv2.imencode(".tif", masks[..., i])
+                encoded_masks.append(encoded_mask.tobytes())
+            response_data = SegmentCommand.Response(
+                rois=rois.tolist(),
+                scores=scores.tolist(),
+                masks=encoded_masks
+            )
+        else:
+            response_data = SegmentCommand.Response(rois=[], scores=[], masks=[])
+
+        return Response(
+            response_data.to_dict(),
+            serialize=SegmentCommand.Response.SERIALIZE
+        )
 
     def get_mode(self, _):
         """
         Returns the current mode of the algorithm (both or depth).
         """
-        return Response(self.mode)
+        return Response(
+            data=GetModeCommand.Response(self.mode).to_data(),
+            serialize=GetModeCommand.Response.SERIALIZE
+        )
 
     def set_mode(self, data):
         """
@@ -68,7 +119,7 @@ class SDMaskRCNNEvaluator:
         'both' means that the algorithm is considering grayscale and depth data.
         'depth' means that the algorithm only considers depth data.
         """
-        mode = data.decode().strip().lower()
+        mode = SetModeCommand.Request(data).to_data().decode().strip().lower()
         if mode not in MODES:
             return Response(f"Invalid mode {mode}")
         self.mode = mode
@@ -83,20 +134,26 @@ class SDMaskRCNNEvaluator:
             mode=config['model']['mode'], config=inference_config, model_dir=model_dir)
         self.model.load_weights(model_path, by_name=True)
         self.element.log(LogLevel.INFO, f"Loaded weights from {model_path}")
-        return Response(f"Mode switched to {self.mode}")
+        return Response(
+            data=SetModeCommand.Response(f"Mode switched to {self.mode}").to_data(),
+            serialize=SetModeCommand.Response.SERIALIZE
+        )
 
     def set_stream(self, data):
         """
         Sets streaming of segmented masks to true or false.
         """
-        data = data.decode().strip().lower()
+        data = SetStreamCommand.Request(data).to_data().decode().strip().lower()
         if data == "true":
             self.stream_enabled = True
         elif data == "false":
             self.stream_enabled = False
         else:
             return Response(f"Expected bool, got {type(data)}.")
-        return Response(f"Streaming set to {self.stream_enabled}")
+        return Response(
+            SetStreamCommand.Response(f"Streaming set to {self.stream_enabled}"),
+            serialize=SetStreamCommand.Response.SERIALIZE
+        )
 
     def inpaint(self, img, missing_value=0):
         """
@@ -171,6 +228,8 @@ class SDMaskRCNNEvaluator:
                 time.sleep(1 / PUBLISH_RATE)
                 continue
 
+            self.element.wait_for_elements_healthy([rc.REALSENSE_ELEMENT_NAME])
+
             start_time = time.time()
             scores, masks, rois, color_img = self.get_masks()
             masked_img = np.zeros(color_img.shape).astype("uint8")
@@ -211,7 +270,11 @@ class SDMaskRCNNEvaluator:
 
                 _, color_serialized = cv2.imencode(".tif", masked_img)
                 self.element.entry_write(
-                    "color_mask", {"data": color_serialized.tobytes()}, maxlen=30)
+                    ColorMaskStreamContract.STREAM_NAME,
+                    ColorMaskStreamContract(data=color_serialized.tobytes()),
+                    maxlen=30,
+                    serialize=ColorMaskStreamContract.SERIALIZE
+                )
 
             time.sleep(max(0, (1 / PUBLISH_RATE) - (time.time() - start_time)))
 
@@ -267,36 +330,6 @@ class SDMaskRCNNEvaluator:
 
         return results["scores"], masks, rois, color_img
 
-    def segment(self, _):
-        """
-        Command for getting the latest segmentation masks and returning the results.
-        """
-        scores, masks, rois, color_img = self.get_masks()
-        # Encoded masks in TIF format and package everything in dictionary
-        encoded_masks = []
-
-        if masks is not None and scores is not None:
-            for i in range(masks.shape[-1]):
-                _, encoded_mask = cv2.imencode(".tif", masks[..., i])
-                encoded_masks.append(encoded_mask.tobytes())
-            response_data = {
-                "rois": rois.tolist(),
-                "scores": scores.tolist(),
-                "masks": encoded_masks
-            }
-
-        else:
-            response_data = {
-                "rois": [],
-                "scores": [],
-                "masks": []
-            }
-
-        return Response(response_data, serialize=True)
-
 
 if __name__ == "__main__":
     evaluator = SDMaskRCNNEvaluator()
-    test = evaluator.segment(None)
-    print(test.data)
-    time.sleep(100000)
