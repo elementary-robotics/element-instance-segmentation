@@ -151,7 +151,7 @@ class SDMaskRCNNEvaluator:
         else:
             return Response(f"Expected bool, got {type(data)}.")
         return Response(
-            SetStreamCommand.Response(f"Streaming set to {self.stream_enabled}"),
+            SetStreamCommand.Response(f"Streaming set to {self.stream_enabled}").to_data(),
             serialize=SetStreamCommand.Response.SERIALIZE
         )
 
@@ -271,7 +271,7 @@ class SDMaskRCNNEvaluator:
                 _, color_serialized = cv2.imencode(".tif", masked_img)
                 self.element.entry_write(
                     ColorMaskStreamContract.STREAM_NAME,
-                    ColorMaskStreamContract(data=color_serialized.tobytes()),
+                    ColorMaskStreamContract(data=color_serialized.tobytes()).to_dict(),
                     maxlen=30,
                     serialize=ColorMaskStreamContract.SERIALIZE
                 )
